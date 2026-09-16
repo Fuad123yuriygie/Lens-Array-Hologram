@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0,
+             maximum-scale=10.0, user-scalable=no"
+  >
+
+  <title>20×20 Image Grid</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: Arial, sans-serif;
+    }
+
+    /* ==================================================
+       VIEWPORT
+       ================================================== */
+
+    #viewport {
+      position: fixed;
+      inset: 0;
+      overflow: hidden;
+      touch-action: none;
+    }
+
+    #grid {
+      position: absolute;
+
+      width: min(100vw, 100vh);
+      height: min(100vw, 100vh);
+
+      left: 50%;
+      top: 50%;
+
+      display: grid;
+      grid-template-columns: repeat(20, 1fr);
+      grid-template-rows: repeat(20, 1fr);
+
+      gap: 0;
+
+      transform-origin: center center;
+      will-change: transform;
+    }
+
+    #grid img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      margin: 0;
+      padding: 0;
+      border: 0;
+    }
+
+
+    /* ==================================================
+       CONTROL PANEL
+       ================================================== */
+
+    #controls {
+      position: fixed;
+      left: 8px;
+      right: 8px;
+      bottom: 8px;
+
+      padding: 10px 8px;
+
+      background: rgba(18, 18, 18, 0.94);
+      border-radius: 14px;
+
+      color: white;
+
+      z-index: 1000;
+
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .control {
+      display: grid;
+      grid-template-columns: 48px 1fr 72px;
+      align-items: center;
+
+      height: 46px;
+      margin-bottom: 6px;
+    }
+
+    .control:last-child {
+      margin-bottom: 0;
+    }
+
+    .label {
+      font-size: 13px;
+      font-weight: bold;
+      text-align: center;
+    }
+
+    .value {
+      font-size: 13px;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+
+    /* ==================================================
+       WHEEL
+       ================================================== */
+
+    .wheel {
+      position: relative;
+
+      height: 40px;
+      overflow: hidden;
+
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+
+      cursor: ew-resize;
+    }
+
+    /* Center indicator */
+    .wheel .center-line {
+      position: absolute;
+      z-index: 20;
+
+      left: 50%;
+      top: 0;
+
+      width: 1px;
+      height: 100%;
+
+      background: rgba(255, 255, 255, 0.9);
+
+      pointer-events: none;
+    }
+
+    /* Edge fade */
+    .wheel .fade {
+      position: absolute;
+      inset: 0;
+      z-index: 15;
+
+      pointer-events: none;
+
+      background:
+        linear-gradient(
+          to right,
+          rgba(18,18,18,1) 0%,
+          rgba(18,18,18,0) 17%,
+          rgba(18,18,18,0) 83%,
+          rgba(18,18,18,1) 100%
+        );
+    }
+
+    .tick-layer {
+      position: absolute;
+      inset: 0;
+
+      pointer-events: none;
+    }
+
+    .tick {
+      position: absolute;
+
+      top: 0;
+
+      width: 1px;
+      height: 100%;
+    }
+
+    .tick::after {
+      content: "";
+
+      position: absolute;
+      left: 0;
+      bottom: 4px;
+
+      width: 1px;
+      height: 8px;
+
+      background: rgba(255,255,255,0.42);
+    }
+
+    .tick.major::after {
+      height: 16px;
+      background: rgba(255,255,255,0.8);
+    }
+
+    .tick-label {
+      position: absolute;
+
+      left: 0;
+      bottom: 20px;
+
+      transform: translateX(-50%);
+
+      font-size: 9px;
+      color: rgba(255,255,255,0.65);
+
+      white-space: nowrap;
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- ==================================================
+       IMAGE GRID
+       ================================================== -->
+
+  <div id="viewport">
+    <div id="grid"></div>
+  </div>
+
+
+  <!-- ==================================================
+       CONTROLS
+       ================================================== -->
+
+  <div id="controls">
+
+    <div class="control">
+      <div class="label">X</div>
+      <div class="wheel" id="xWheel"></div>
+      <div class="value" id="xValue">0.0 px</div>
+    </div>
+
+    <div class="control">
+      <div class="label">Y</div>
+      <div class="wheel" id="yWheel"></div>
+      <div class="value" id="yValue">0.0 px</div>
+    </div>
+
+    <div class="control">
+      <div class="label">Scale</div>
+      <div class="wheel" id="scaleWheel"></div>
+      <div class="value" id="scaleValue">1.000×</div>
+    </div>
+
+    <div class="control">
+      <div class="label">Rot</div>
+      <div class="wheel" id="rotationWheel"></div>
+      <div class="value" id="rotationValue">0.0°</div>
+    </div>
+
+  </div>
+
+
+  <script>
+
+    /* ==================================================
+       CREATE ALL 400 IMAGES
+       ================================================== */
+
+    const grid = document.getElementById("grid");
+
+    for (let row = 0; row < 20; row++) {
+      for (let col = 0; col < 20; col++) {
+
+        const img = document.createElement("img");
+
+        img.src = `render_row${row}_col${col}.jpg`;
+        img.alt = "";
+
+        grid.appendChild(img);
+      }
+    }
+
+
+    /* ==================================================
+       TRANSFORM STATE
+       ================================================== */
+
+    let x = 0;
+    let y = 0;
+    let scale = 1;
+    let rotation = 0;
+
+
+    function updateGrid() {
+      grid.style.transform =
+        `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))
+         rotate(${rotation}deg)
+         scale(${scale})`;
+    }
+
+
+    /* ==================================================
+       LIGHTWEIGHT PRECISION WHEEL
+       ================================================== */
+
+    class PrecisionWheel {
+
+      constructor({
+        element,
+        output,
+        min,
+        max,
+        step,
+        value,
+        pixelsPerStep,
+        decimals,
+        unit,
+        majorEvery,
+        onChange
+      }) {
+
+        this.element = element;
+        this.output = output;
+
+        this.min = min;
+        this.max = max;
+        this.step = step;
+        this.value = value;
+
+        this.pixelsPerStep = pixelsPerStep;
+
+        this.decimals = decimals;
+        this.unit = unit || "";
+
+        this.majorEvery = majorEvery || 10;
+
+        this.onChange = onChange || (() => {});
+
+        this.dragging = false;
+        this.startPointerX = 0;
+        this.startValue = this.value;
+
+        this.tickSpacing = 10;
+
+        this.tickLayer =
+          document.createElement("div");
+
+        this.tickLayer.className =
+          "tick-layer";
+
+        this.element.appendChild(
+          this.tickLayer
+        );
+
+
+        const centerLine =
+          document.createElement("div");
+
+        centerLine.className =
+          "center-line";
+
+        this.element.appendChild(
+          centerLine
+        );
+
+
+        const fade =
+          document.createElement("div");
+
+        fade.className =
+          "fade";
+
+        this.element.appendChild(
+          fade
+        );
+
+
+        this.renderTicks();
+        this.update();
+        this.bind();
+      }
+
+
+      /* ------------------------------------------------
+         Format
+         ------------------------------------------------ */
+
+      format(value) {
+        return value.toFixed(this.decimals);
+      }
+
+
+      /* ------------------------------------------------
+         Convert value → pixel position
+         ------------------------------------------------ */
+
+      valueToPixels(value) {
+
+        const steps =
+          (value - this.min) / this.step;
+
+        return steps * this.tickSpacing;
+      }
+
+
+      /* ------------------------------------------------
+         Render ONLY visible ticks
+         ------------------------------------------------ */
+
+      renderTicks() {
+
+        this.tickLayer.innerHTML = "";
+
+        const width =
+          this.element.clientWidth || 200;
+
+        const visibleTicks =
+          Math.ceil(width / this.tickSpacing) + 6;
+
+
+        /*
+          We create only a few dozen ticks,
+          rather than thousands.
+        */
+
+        this.tickElements = [];
+
+        for (let i = 0; i < visibleTicks; i++) {
+
+          const tick =
+            document.createElement("div");
+
+          tick.className = "tick";
+
+          this.tickLayer.appendChild(tick);
+
+          this.tickElements.push(tick);
+        }
+
+        this.visibleTicks = visibleTicks;
+      }
+
+
+      /* ------------------------------------------------
+         Update visual wheel
+         ------------------------------------------------ */
+
+      update() {
+
+        this.output.textContent =
+          this.format(this.value) +
+          this.unit;
+
+
+        const center =
+          this.element.clientWidth / 2;
+
+
+        const currentStep =
+          Math.round(
+            (this.value - this.min) /
+            this.step
+          );
+
+
+        /*
+          Draw ticks surrounding the current value.
+        */
+
+        const half =
+          Math.floor(this.visibleTicks / 2);
+
+
+        for (
+          let i = 0;
+          i < this.visibleTicks;
+          i++
+        ) {
+
+          const relative =
+            i - half;
+
+          const stepIndex =
+            currentStep + relative;
+
+          const value =
+            this.min +
+            stepIndex * this.step;
+
+          const tick =
+            this.tickElements[i];
+
+
+          if (
+            value < this.min ||
+            value > this.max
+          ) {
+
+            tick.style.display = "none";
+            continue;
+          }
+
+
+          tick.style.display = "block";
+
+
+          const px =
+            center +
+            relative * this.tickSpacing;
+
+          tick.style.left =
+            `${px}px`;
+
+
+          tick.className = "tick";
+
+
+          /*
+            Major tick logic
+          */
+
+          if (
+            stepIndex %
+            this.majorEvery === 0
+          ) {
+
+            tick.classList.add("major");
+
+            /*
+              Remove old label
+            */
+
+            let label =
+              tick.querySelector(
+                ".tick-label"
+              );
+
+            if (!label) {
+
+              label =
+                document.createElement("div");
+
+              label.className =
+                "tick-label";
+
+              tick.appendChild(label);
+            }
+
+            label.textContent =
+              this.format(value);
+          }
+
+          else {
+
+            const oldLabel =
+              tick.querySelector(
+                ".tick-label"
+              );
+
+            if (oldLabel) {
+              oldLabel.remove();
+            }
+          }
+        }
+      }
+
+
+      /* ------------------------------------------------
+         Set value
+         ------------------------------------------------ */
+
+      setValue(value) {
+
+        value =
+          Math.max(
+            this.min,
+            Math.min(this.max, value)
+          );
+
+
+        /*
+          Snap to exact step.
+        */
+
+        value =
+          this.min +
+          Math.round(
+            (value - this.min) /
+            this.step
+          ) *
+          this.step;
+
+
+        value =
+          Math.max(
+            this.min,
+            Math.min(this.max, value)
+          );
+
+
+        this.value = value;
+
+        this.update();
+        this.onChange(value);
+      }
+
+
+      /* ------------------------------------------------
+         Pointer controls
+         ------------------------------------------------ */
+
+      bind() {
+
+        this.element.addEventListener(
+          "pointerdown",
+          (event) => {
+
+            this.dragging = true;
+
+            this.startPointerX =
+              event.clientX;
+
+            this.startValue =
+              this.value;
+
+            this.element.setPointerCapture(
+              event.pointerId
+            );
+
+            event.preventDefault();
+          }
+        );
+
+
+        this.element.addEventListener(
+          "pointermove",
+          (event) => {
+
+            if (!this.dragging) return;
+
+
+            const dx =
+              event.clientX -
+              this.startPointerX;
+
+
+            /*
+              Drag left  = increase
+              Drag right = decrease
+            */
+
+            const valueChange =
+              -dx /
+              this.pixelsPerStep *
+              this.step;
+
+
+            this.setValue(
+              this.startValue +
+              valueChange
+            );
+
+
+            event.preventDefault();
+          }
+        );
+
+
+        const stopDragging =
+          (event) => {
+
+            if (!this.dragging) return;
+
+            this.dragging = false;
+
+            try {
+              this.element.releasePointerCapture(
+                event.pointerId
+              );
+            } catch (_) {}
+          };
+
+
+        this.element.addEventListener(
+          "pointerup",
+          stopDragging
+        );
+
+        this.element.addEventListener(
+          "pointercancel",
+          stopDragging
+        );
+
+
+        /*
+          Double-tap / double-click resets to zero
+          when zero is within the range.
+        */
+
+        this.element.addEventListener(
+          "dblclick",
+          () => {
+
+            if (
+              this.min <= 0 &&
+              this.max >= 0
+            ) {
+              this.setValue(0);
+            }
+          }
+        );
+      }
+    }
+
+
+    /* ==================================================
+       X WHEEL
+       ================================================== */
+
+    const xWheel =
+      new PrecisionWheel({
+
+        element:
+          document.getElementById("xWheel"),
+
+        output:
+          document.getElementById("xValue"),
+
+        min: -2000,
+        max: 2000,
+
+        step: 0.1,
+
+        value: 0,
+
+        pixelsPerStep: 3,
+
+        decimals: 1,
+
+        unit: " px",
+
+        majorEvery: 10,
+
+        onChange(value) {
+          x = value;
+          updateGrid();
+        }
+      });
+
+
+    /* ==================================================
+       Y WHEEL
+       ================================================== */
+
+    const yWheel =
+      new PrecisionWheel({
+
+        element:
+          document.getElementById("yWheel"),
+
+        output:
+          document.getElementById("yValue"),
+
+        min: -2000,
+        max: 2000,
+
+        step: 0.1,
+
+        value: 0,
+
+        pixelsPerStep: 3,
+
+        decimals: 1,
+
+        unit: " px",
+
+        majorEvery: 10,
+
+        onChange(value) {
+          y = value;
+          updateGrid();
+        }
+      });
+
+
+    /* ==================================================
+       SCALE WHEEL
+       ================================================== */
+
+    const scaleWheel =
+      new PrecisionWheel({
+
+        element:
+          document.getElementById("scaleWheel"),
+
+        output:
+          document.getElementById("scaleValue"),
+
+        min: 0.05,
+        max: 20,
+
+        step: 0.001,
+
+        value: 1,
+
+        pixelsPerStep: 2,
+
+        decimals: 3,
+
+        unit: "×",
+
+        majorEvery: 10,
+
+        onChange(value) {
+          scale = value;
+          updateGrid();
+        }
+      });
+
+
+    /* ==================================================
+       ROTATION WHEEL
+       ================================================== */
+
+    const rotationWheel =
+      new PrecisionWheel({
+
+        element:
+          document.getElementById("rotationWheel"),
+
+        output:
+          document.getElementById("rotationValue"),
+
+        min: -180,
+        max: 180,
+
+        step: 0.1,
+
+        value: 0,
+
+        pixelsPerStep: 3,
+
+        decimals: 1,
+
+        unit: "°",
+
+        majorEvery: 10,
+
+        onChange(value) {
+          rotation = value;
+          updateGrid();
+        }
+      });
+
+
+    /* ==================================================
+       PINCH ZOOM
+       ================================================== */
+
+    let initialDistance = 0;
+    let initialScale = 1;
+
+
+    function getDistance(t1, t2) {
+
+      const dx =
+        t1.clientX -
+        t2.clientX;
+
+      const dy =
+        t1.clientY -
+        t2.clientY;
+
+      return Math.sqrt(
+        dx * dx +
+        dy * dy
+      );
+    }
+
+
+    viewport.addEventListener(
+      "touchstart",
+      (event) => {
+
+        if (event.touches.length === 2) {
+
+          initialDistance =
+            getDistance(
+              event.touches[0],
+              event.touches[1]
+            );
+
+          initialScale = scale;
+
+          event.preventDefault();
+        }
+      },
+      { passive: false }
+    );
+
+
+    viewport.addEventListener(
+      "touchmove",
+      (event) => {
+
+        if (event.touches.length === 2) {
+
+          const currentDistance =
+            getDistance(
+              event.touches[0],
+              event.touches[1]
+            );
+
+
+          if (initialDistance > 0) {
+
+            scale =
+              initialScale *
+              (
+                currentDistance /
+                initialDistance
+              );
+
+
+            scale =
+              Math.max(
+                0.05,
+                Math.min(scale, 20)
+              );
+
+
+            /*
+              Keep Scale wheel synchronized
+            */
+
+            scale =
+              Math.round(
+                scale / 0.001
+              ) * 0.001;
+
+
+            scaleWheel.value =
+              scale;
+
+            scaleWheel.update();
+
+
+            updateGrid();
+          }
+
+          event.preventDefault();
+        }
+      },
+      { passive: false }
+    );
+
+
+    viewport.addEventListener(
+      "touchend",
+      (event) => {
+
+        if (event.touches.length < 2) {
+          initialDistance = 0;
+        }
+      },
+      { passive: false }
+    );
+
+
+    viewport.addEventListener(
+      "touchcancel",
+      () => {
+        initialDistance = 0;
+      },
+      { passive: false }
+    );
+
+
+    /* ==================================================
+       INITIAL RENDER
+       ================================================== */
+
+    updateGrid();
+
+  </script>
+
+</body>
+</html>
